@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Residents — NestO</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="page-title">👥 <span>Residents & Flats</span></div>
+      <div class="topbar-actions">
+        <button class="btn btn-secondary" onclick="openModal('add-flat-modal')"><i data-lucide="plus" style="width:14px;height:14px"></i> Add Flat</button>
+        <button class="btn btn-primary" onclick="openModal('add-user-modal')"><i data-lucide="user-plus" style="width:14px;height:14px"></i> Add Resident</button>
+      </div>
+    </div>
+    <div id="alert-container"></div>
+
+    <!-- Stats row -->
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.5rem" id="flat-stats"></div>
+
+    <!-- Flat Table -->
+    <div class="card">
+      <div class="flex justify-between items-center" style="margin-bottom:1rem">
+        <h3 style="font-size:.95rem;font-weight:700">All Flats</h3>
+        <input type="search" class="form-control" style="width:220px" placeholder="Search flat / resident…" id="search-input" oninput="filterTable()">
+      </div>
+      <div class="table-wrap">
+        <table id="flat-table">
+          <thead><tr>
+            <th>Flat No.</th><th>Block</th><th>Floor</th><th>Area</th>
+            <th>Resident</th><th>Type</th><th>Status</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="flat-tbody"><tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text3)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="card" style="margin-top:1.5rem">
+      <h3 style="font-size:.95rem;font-weight:700;margin-bottom:1rem">All Users</h3>
+      <div class="table-wrap">
+        <table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Status</th></tr></thead>
+          <tbody id="user-tbody"><tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text3)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Add Flat Modal -->
+<div class="modal-overlay" id="add-flat-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Add New Flat</span>
+      <button class="modal-close" onclick="closeModal('add-flat-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <form onsubmit="addFlat(event)">
+      <div class="grid-2">
+        <div class="form-group"><label>Flat Number*</label>
+          <input id="f-num" class="form-control" placeholder="A-101" required></div>
+        <div class="form-group"><label>Block</label>
+          <input id="f-block" class="form-control" placeholder="A"></div>
+      </div>
+      <div class="grid-2">
+        <div class="form-group"><label>Floor</label>
+          <input id="f-floor" type="number" class="form-control" placeholder="1"></div>
+        <div class="form-group"><label>Area (sqft)</label>
+          <input id="f-area" type="number" class="form-control" placeholder="1200"></div>
+      </div>
+      <div class="form-group"><label>Resident</label>
+        <select id="f-resident" class="form-control"><option value="">— Unoccupied —</option></select>
+      </div>
+      <div class="form-group"><label>Ownership Type</label>
+        <select id="f-owner" class="form-control">
+          <option value="true">Owner</option><option value="false">Tenant</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary w-full">Add Flat</button>
+    </form>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal-overlay" id="add-user-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Register New User</span>
+      <button class="modal-close" onclick="closeModal('add-user-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <form onsubmit="addUser(event)">
+      <div class="form-group"><label>Full Name*</label>
+        <input id="u-name" class="form-control" required></div>
+      <div class="form-group"><label>Email*</label>
+        <input id="u-email" type="email" class="form-control" required></div>
+      <div class="form-group"><label>Phone</label>
+        <input id="u-phone" class="form-control"></div>
+      <div class="form-group"><label>Role</label>
+        <select id="u-role" class="form-control">
+          <option value="resident">Resident</option>
+          <option value="staff">Staff</option>
+          <option value="security">Security</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Password*</label>
+        <input id="u-pass" type="password" class="form-control" required minlength="6"></div>
+      <button type="submit" class="btn btn-primary w-full">Register User</button>
+    </form>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+const user = requireAuth(['admin','staff']);
+let allFlats = [];
+let allUsers = [];
+
+if (user) {
+  renderSidebar('residents');
+  loadAll();
+}
+
+async function loadAll() {
+  [allFlats, allUsers] = await Promise.all([
+    api('GET','/api/residents'),
+    api('GET','/api/residents/users'),
+  ]);
+  if (!allFlats || !allUsers) return;
+
+  // Stats
+  const occupied = allFlats.filter(f=>f.resident).length;
+  document.getElementById('flat-stats').innerHTML = `
+    <div class="card stat-card"><div class="stat-icon"><i data-lucide="home" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+      <div class="card-title">Total Flats</div><div class="card-value">${allFlats.length}</div></div>
+    <div class="card stat-card"><div class="stat-icon"><i data-lucide="check-circle" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+      <div class="card-title">Occupied</div><div class="card-value">${occupied}</div></div>
+    <div class="card stat-card"><div class="stat-icon"><i data-lucide="key" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+      <div class="card-title">Vacant</div><div class="card-value">${allFlats.length-occupied}</div></div>`;
+
+  // Populate resident dropdown
+  const sel = document.getElementById('f-resident');
+  const residents = allUsers.filter(u=>u.role==='resident');
+  residents.forEach(r => {
+    const o = document.createElement('option');
+    o.value = r.id; o.textContent = `${r.name} (${r.email})`;
+    sel.appendChild(o);
+  });
+
+  renderFlatTable(allFlats);
+  renderUserTable(allUsers);
+}
+
+function renderFlatTable(flats) {
+  document.getElementById('flat-tbody').innerHTML = flats.map(f => `
+    <tr>
+      <td><strong>${f.flat_number}</strong></td>
+      <td>${f.block||'—'}</td>
+      <td>${f.floor!=null?f.floor:'—'}</td>
+      <td>${f.area_sqft?f.area_sqft+' sqft':'—'}</td>
+      <td>${f.resident ? `<strong>${f.resident.name}</strong><br><span style="font-size:.75rem;color:var(--text3)">${f.resident.phone||''}</span>` : '<span class="text-muted">Vacant</span>'}</td>
+      <td>${f.is_owner?'<span class="badge badge-blue">Owner</span>':'<span class="badge badge-gray">Tenant</span>'}</td>
+      <td>${f.resident?'<span class="badge badge-green">Occupied</span>':'<span class="badge badge-gray">Vacant</span>'}</td>
+      <td><button class="btn btn-secondary btn-sm" onclick="editFlat(${f.id})">Edit</button></td>
+    </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3)">No flats added yet.</td></tr>';
+}
+
+function renderUserTable(users) {
+  document.getElementById('user-tbody').innerHTML = users.map(u => `
+    <tr>
+      <td><strong>${u.name}</strong></td>
+      <td>${u.email}</td>
+      <td>${u.phone||'—'}</td>
+      <td>${badge(u.role)}</td>
+      <td>${u.is_active?'<span class="badge badge-green">Active</span>':'<span class="badge badge-red">Inactive</span>'}</td>
+    </tr>`).join('');
+}
+
+function filterTable() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const filtered = allFlats.filter(f =>
+    f.flat_number.toLowerCase().includes(q) ||
+    (f.resident?.name.toLowerCase().includes(q)) ||
+    (f.block?.toLowerCase().includes(q))
+  );
+  renderFlatTable(filtered);
+}
+
+async function addFlat(e) {
+  e.preventDefault();
+  try {
+    await api('POST','/api/residents',{
+      flat_number: document.getElementById('f-num').value,
+      block: document.getElementById('f-block').value || null,
+      floor: parseInt(document.getElementById('f-floor').value) || null,
+      area_sqft: parseFloat(document.getElementById('f-area').value) || null,
+      resident_id: parseInt(document.getElementById('f-resident').value) || null,
+      is_owner: document.getElementById('f-owner').value === 'true',
+    });
+    showAlert('Flat added!'); closeModal('add-flat-modal'); loadAll();
+  } catch(err) { showError(err.message); }
+}
+
+async function addUser(e) {
+  e.preventDefault();
+  try {
+    await api('POST','/api/auth/register',{
+      name: document.getElementById('u-name').value,
+      email: document.getElementById('u-email').value,
+      phone: document.getElementById('u-phone').value || null,
+      password: document.getElementById('u-pass').value,
+      role: document.getElementById('u-role').value,
+    });
+    showAlert('User registered!'); closeModal('add-user-modal'); loadAll();
+  } catch(err) { showError(err.message); }
+}
+
+function editFlat(id) {
+  showAlert('Edit functionality — coming soon', 'error');
+}
+  if(typeof lucide!=="undefined")lucide.createIcons();
+</script>
+</body>
+</html>

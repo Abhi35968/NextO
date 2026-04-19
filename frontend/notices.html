@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Notices — NestO</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="page-title">📋 <span>Notices & Polls</span></div>
+      <div id="admin-post-btn" class="topbar-actions"></div>
+    </div>
+    <div id="alert-container"></div>
+
+    <!-- Category filter -->
+    <div class="card" style="padding:1rem;margin-bottom:1.5rem">
+      <div class="flex gap-2" style="flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm active-filter" id="filter-all" onclick="setFilter('')">All</button>
+        <button class="btn btn-secondary btn-sm" id="filter-general" onclick="setFilter('general')">📢 General</button>
+        <button class="btn btn-secondary btn-sm" id="filter-event" onclick="setFilter('event')">🎉 Events</button>
+        <button class="btn btn-secondary btn-sm" id="filter-poll" onclick="setFilter('poll')">📊 Polls</button>
+        <button class="btn btn-secondary btn-sm" id="filter-maintenance" onclick="setFilter('maintenance')">🔧 Maintenance</button>
+      </div>
+    </div>
+
+    <div id="notices-list"></div>
+  </main>
+</div>
+
+<!-- New Notice Modal -->
+<div class="modal-overlay" id="new-notice-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Post Notice / Poll</span>
+      <button class="modal-close" onclick="closeModal('new-notice-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <form onsubmit="postNotice(event)">
+      <div class="form-group"><label>Title*</label>
+        <input id="n-title" class="form-control" required></div>
+      <div class="form-group"><label>Body*</label>
+        <textarea id="n-body" class="form-control" rows="4" required></textarea></div>
+      <div class="grid-2">
+        <div class="form-group"><label>Category</label>
+          <select id="n-cat" class="form-control">
+            <option value="general">General</option>
+            <option value="event">Event</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="poll">Poll</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Is Poll?</label>
+          <select id="n-poll" class="form-control" onchange="togglePollFields()">
+            <option value="false">No</option>
+            <option value="true">Yes</option>
+          </select>
+        </div>
+      </div>
+      <div id="poll-fields" style="display:none">
+        <div class="form-group"><label>Poll Options (one per line)</label>
+          <textarea id="n-opts" class="form-control" rows="3" placeholder="Option 1&#10;Option 2&#10;Option 3"></textarea></div>
+        <div class="form-group"><label>Voting Deadline</label>
+          <input id="n-deadline" type="datetime-local" class="form-control"></div>
+      </div>
+      <button type="submit" class="btn btn-primary w-full">Post Notice</button>
+    </form>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+const user = requireAuth();
+let allNotices = [];
+let activeFilter = '';
+
+if (user) {
+  renderSidebar('notices');
+  if (user.role === 'admin') {
+    document.getElementById('admin-post-btn').innerHTML =
+      `<button class="btn btn-primary" onclick="openModal('new-notice-modal')"><i data-lucide="plus" style="width:14px;height:14px"></i> Post Notice</button>`;
+  }
+  loadNotices();
+}
+
+function togglePollFields() {
+  const isPoll = document.getElementById('n-poll').value === 'true';
+  document.getElementById('poll-fields').style.display = isPoll ? 'block' : 'none';
+}
+
+function setFilter(cat) {
+  activeFilter = cat;
+  document.querySelectorAll('[id^=filter-]').forEach(b => b.style.background = '');
+  const id = 'filter-' + (cat || 'all');
+  const el = document.getElementById(id);
+  if (el) el.style.background = 'rgba(99,102,241,.2)';
+  renderNotices();
+}
+
+async function loadNotices() {
+  allNotices = await api('GET','/api/notices') || [];
+  renderNotices();
+}
+
+function renderNotices() {
+  const filtered = activeFilter
+    ? allNotices.filter(n => n.category === activeFilter || (activeFilter==='poll' && n.is_poll))
+    : allNotices;
+
+  document.getElementById('notices-list').innerHTML = filtered.map(n => {
+    const isPoll = n.is_poll;
+    let pollHtml = '';
+    if (isPoll && n.poll_options) {
+      const totalVotes = Object.values(n.vote_counts||{}).reduce((a,b)=>a+b,0);
+      pollHtml = `<div style="margin-top:1rem">` +
+        n.poll_options.map((opt,i) => {
+          const votes = n.vote_counts?.[i] || 0;
+          const pct = totalVotes > 0 ? Math.round(votes/totalVotes*100) : 0;
+          return `
+            <div class="poll-option" onclick="castVote(${n.id},${i})">
+              <span>${opt}</span>
+              <span style="display:flex;align-items:center;gap:.5rem">
+                <span style="font-size:.8rem;color:var(--text2)">${votes} votes</span>
+                <span style="font-weight:700;color:var(--primary-l)">${pct}%</span>
+              </span>
+            </div>
+            <div class="progress-bar" style="margin-bottom:.25rem">
+              <div class="progress-fill" style="width:${pct}%"></div>
+            </div>`;
+        }).join('') + `
+        <div style="font-size:.75rem;color:var(--text3);margin-top:.5rem">
+          ${totalVotes} total vote${totalVotes!==1?'s':''}
+          ${n.poll_deadline?' · Deadline: '+formatDate(n.poll_deadline):''}
+        </div></div>`;
+    }
+
+    return `
+      <div class="card notice-card ${isPoll?'poll':''} fade-in" style="margin-bottom:1rem">
+        <div class="flex justify-between items-start">
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:1rem;margin-bottom:.3rem">
+              ${isPoll?'📊 ':''}${n.title}
+            </div>
+            <div class="text-muted text-sm" style="white-space:pre-wrap">${n.body}</div>
+          </div>
+          <span class="badge badge-${
+            n.category==='event'?'purple':n.is_poll?'yellow':'blue'}" style="margin-left:1rem;white-space:nowrap">
+            ${n.category}
+          </span>
+        </div>
+        ${pollHtml}
+        <div style="font-size:.72rem;color:var(--text3);margin-top:.75rem">
+          Posted by ${n.posted_by} · ${formatDate(n.created_at)}
+        </div>
+      </div>`;
+  }).join('') || '<div class="card" style="text-align:center;color:var(--text3);padding:2rem">No notices posted yet.</div>';
+}
+
+async function castVote(noticeId, optionIndex) {
+  try {
+    await api('POST', `/api/notices/${noticeId}/vote?option_index=${optionIndex}`);
+    showAlert('Vote recorded!');
+    loadNotices();
+  } catch(err) {
+    showError(err.message.includes('Already') ? 'You have already voted on this poll.' : err.message);
+  }
+}
+
+async function postNotice(e) {
+  e.preventDefault();
+  const isPoll = document.getElementById('n-poll').value === 'true';
+  const opts = isPoll ? document.getElementById('n-opts').value.split('\n').filter(Boolean) : null;
+  const deadline = document.getElementById('n-deadline').value;
+  try {
+    await api('POST','/api/notices',{
+      title: document.getElementById('n-title').value,
+      body: document.getElementById('n-body').value,
+      category: document.getElementById('n-cat').value,
+      is_poll: isPoll,
+      poll_options: opts,
+      poll_deadline: deadline || null,
+    });
+    showAlert('Notice posted!'); closeModal('new-notice-modal'); loadNotices();
+  } catch(err) { showError(err.message); }
+}
+  if(typeof lucide!=="undefined")lucide.createIcons();
+</script>
+</body>
+</html>

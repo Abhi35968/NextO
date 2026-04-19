@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Complaints — NestO</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="page-title">🔔 <span>Complaints</span></div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" onclick="openModal('new-complaint-modal')"><i data-lucide="plus" style="width:14px;height:14px"></i> Raise Complaint</button>
+      </div>
+    </div>
+    <div id="alert-container"></div>
+
+    <!-- Stats -->
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.5rem" id="c-stats"></div>
+
+    <!-- Filters -->
+    <div class="card" style="padding:1rem;margin-bottom:1rem">
+      <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+        <select id="f-status" class="form-control" style="width:150px" onchange="loadComplaints()">
+          <option value="">All Status</option>
+          <option value="open">Open</option>
+          <option value="assigned">Assigned</option>
+          <option value="in_progress">In Progress</option>
+          <option value="resolved">Resolved</option>
+        </select>
+        <select id="f-priority" class="form-control" style="width:140px" onchange="loadComplaints()">
+          <option value="">All Priority</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Complaint Cards -->
+    <div id="complaints-list"></div>
+  </main>
+</div>
+
+<!-- New Complaint Modal -->
+<div class="modal-overlay" id="new-complaint-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Raise Complaint</span>
+      <button class="modal-close" onclick="closeModal('new-complaint-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <form onsubmit="submitComplaint(event)">
+      <div class="form-group"><label>Title*</label>
+        <input id="c-title" class="form-control" placeholder="Brief description" required></div>
+      <div class="form-group"><label>Description</label>
+        <textarea id="c-desc" class="form-control" rows="3" placeholder="Detailed description…"></textarea></div>
+      <div class="grid-2">
+        <div class="form-group"><label>Category</label>
+          <select id="c-cat" class="form-control">
+            <option value="plumbing">Plumbing</option>
+            <option value="electrical">Electrical</option>
+            <option value="cleanliness">Cleanliness</option>
+            <option value="security">Security</option>
+            <option value="lift">Lift/Elevator</option>
+            <option value="parking">Parking</option>
+            <option value="general">General</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Priority</label>
+          <select id="c-priority" class="form-control">
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary w-full">Submit Complaint</button>
+    </form>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <span class="modal-title" id="dm-title"></span>
+      <button class="modal-close" onclick="closeModal('detail-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <div id="dm-body"></div>
+    <div id="admin-actions-detail" style="margin-top:1rem"></div>
+
+    <!-- Comments -->
+    <div style="margin-top:1.5rem;border-top:1px solid var(--border);padding-top:1rem">
+      <h4 style="font-size:.85rem;font-weight:700;margin-bottom:.75rem">Comments</h4>
+      <div id="comments-list"></div>
+      <form onsubmit="addComment(event)" style="margin-top:1rem;display:flex;gap:.5rem">
+        <input id="comment-input" class="form-control" placeholder="Add a comment…" required>
+        <button type="submit" class="btn btn-primary btn-sm">Send</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+const user = requireAuth();
+let allComplaints = [];
+let activeComplaintId = null;
+let staffList = [];
+
+if (user) {
+  renderSidebar('complaints');
+  loadComplaints();
+  if (['admin','staff'].includes(user.role)) {
+    api('GET','/api/residents/users').then(u => { staffList = (u||[]).filter(x=>['staff','admin'].includes(x.role)); });
+  }
+}
+
+async function loadComplaints() {
+  const status = document.getElementById('f-status').value;
+  let url = '/api/complaints' + (status ? `?status=${status}` : '');
+  allComplaints = await api('GET', url) || [];
+
+  // Stats
+  const counts = { open:0, assigned:0, in_progress:0, resolved:0 };
+  allComplaints.forEach(c => { counts[c.status] = (counts[c.status]||0) + 1; });
+  document.getElementById('c-stats').innerHTML = [
+    {icon:'circle-dot',label:'Open',val:counts.open,col:'danger'},
+    {icon:'clock',label:'Assigned',val:counts.assigned,col:'info'},
+    {icon:'loader',label:'In Progress',val:counts.in_progress,col:'primary'},
+    {icon:'check-circle-2',label:'Resolved',val:counts.resolved,col:'success'},
+  ].map(s=>`<div class="card stat-card"><div class="stat-icon"><i data-lucide="${s.icon}" style="width:20px;height:20px;stroke-width:1.5;color:var(--accent)"></i></div>
+    <div class="card-title">${s.label}</div>
+    <div class="card-value" style="color:var(--${s.col})">${s.val}</div></div>`).join('');
+
+  const priorityFilter = document.getElementById('f-priority').value;
+  const filtered = priorityFilter ? allComplaints.filter(c=>c.priority===priorityFilter) : allComplaints;
+
+  document.getElementById('complaints-list').innerHTML = filtered.map(c => `
+    <div class="card" style="margin-bottom:1rem;cursor:pointer;border-left:3px solid ${
+      c.priority==='high'?'var(--danger)':c.priority==='low'?'var(--success)':'var(--warning)'
+    }" onclick="openDetail(${c.id})">
+      <div class="flex justify-between items-center">
+        <div>
+          <div style="font-weight:700;margin-bottom:.25rem">${c.title}</div>
+          <div class="text-muted text-sm">${c.category} · By ${c.raised_by} · ${formatDate(c.created_at)}</div>
+        </div>
+        <div class="flex gap-1 items-center">
+          ${c.sla_breached?'<span class="badge badge-red">⚠ SLA Breached</span>':''}
+          ${badge(c.priority)} ${badge(c.status)}
+        </div>
+      </div>
+      ${c.assigned_to?`<div class="text-sm text-muted mt-1">👤 Assigned to ${c.assigned_to}</div>`:''}
+    </div>`).join('') || '<div class="card" style="text-align:center;color:var(--text3);padding:2rem">No complaints found.</div>';
+}
+
+async function openDetail(id) {
+  const c = allComplaints.find(x=>x.id===id);
+  if (!c) return;
+  activeComplaintId = id;
+  document.getElementById('dm-title').textContent = c.title;
+  document.getElementById('dm-body').innerHTML = `
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem">
+      ${badge(c.status)} ${badge(c.priority)}
+      ${c.sla_breached?'<span class="badge badge-red">⚠ SLA Breached</span>':''}
+    </div>
+    <p class="text-sm text-muted">${c.description||'No description provided.'}</p>
+    <div style="margin-top:1rem;font-size:.8rem;color:var(--text3)">
+      Category: ${c.category} · Raised: ${formatDate(c.created_at)}
+      · SLA: ${c.sla_hours}h${c.resolved_at?' · Resolved: '+formatDate(c.resolved_at):''}
+    </div>`;
+
+  // Admin actions
+  const adminEl = document.getElementById('admin-actions-detail');
+  if (['admin','staff'].includes(user.role)) {
+    const staffOpts = staffList.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+    adminEl.innerHTML = `
+      <div style="border-top:1px solid var(--border);padding-top:1rem">
+        <h4 style="font-size:.8rem;font-weight:700;margin-bottom:.75rem;color:var(--text3);text-transform:uppercase">Admin Actions</h4>
+        <div class="flex gap-2" style="flex-wrap:wrap">
+          <select id="assign-to" class="form-control" style="flex:1;min-width:150px">
+            <option value="">Assign to…</option>${staffOpts}
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="assignComplaint()">Assign</button>
+        </div>
+        <div class="flex gap-1 mt-1" style="flex-wrap:wrap">
+          ${['in_progress','resolved','closed'].map(s=>
+            `<button class="btn btn-secondary btn-sm" onclick="setStatus('${s}')">${s.replace('_',' ')}</button>`
+          ).join('')}
+        </div>
+      </div>`;
+  } else { adminEl.innerHTML = ''; }
+
+  // Load comments
+  loadComments(id);
+  openModal('detail-modal');
+}
+
+async function loadComments(id) {
+  const comments = await api('GET', `/api/complaints/${id}/comments`) || [];
+  document.getElementById('comments-list').innerHTML = comments.map(c=>`
+    <div style="padding:.6rem 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:.8rem;font-weight:600">${c.author} <span style="color:var(--text3);font-weight:400">· ${formatDate(c.created_at)}</span></div>
+      <div style="font-size:.85rem;margin-top:.2rem">${c.text}</div>
+    </div>`).join('') || '<div class="text-muted text-sm">No comments yet.</div>';
+}
+
+async function submitComplaint(e) {
+  e.preventDefault();
+  try {
+    await api('POST','/api/complaints',{
+      title: document.getElementById('c-title').value,
+      description: document.getElementById('c-desc').value,
+      category: document.getElementById('c-cat').value,
+      priority: document.getElementById('c-priority').value,
+    });
+    showAlert('Complaint raised!'); closeModal('new-complaint-modal'); loadComplaints();
+  } catch(err) { showError(err.message); }
+}
+
+async function assignComplaint() {
+  const to = document.getElementById('assign-to').value;
+  if (!to) return;
+  try {
+    await api('PUT', `/api/complaints/${activeComplaintId}/assign`, {assigned_to_id:parseInt(to),sla_hours:24});
+    showAlert('Assigned!'); closeModal('detail-modal'); loadComplaints();
+  } catch(err) { showError(err.message); }
+}
+
+async function setStatus(status) {
+  try {
+    await api('PUT', `/api/complaints/${activeComplaintId}/status?status=${status}`);
+    showAlert('Status updated!'); closeModal('detail-modal'); loadComplaints();
+  } catch(err) { showError(err.message); }
+}
+
+async function addComment(e) {
+  e.preventDefault();
+  const text = document.getElementById('comment-input').value;
+  try {
+    await api('POST', `/api/complaints/${activeComplaintId}/comments`, {text});
+    document.getElementById('comment-input').value = '';
+    loadComments(activeComplaintId);
+  } catch(err) { showError(err.message); }
+}
+  if(typeof lucide!=="undefined")lucide.createIcons();
+</script>
+</body>
+</html>

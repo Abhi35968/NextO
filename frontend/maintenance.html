@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Maintenance — NestO</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="page-title">💳 <span>Maintenance Bills</span></div>
+      <div class="topbar-actions" id="admin-actions"></div>
+    </div>
+    <div id="alert-container"></div>
+
+    <!-- Summary cards (admin only) -->
+    <div class="stat-grid" id="summary-cards" style="margin-bottom:1.5rem"></div>
+
+    <!-- Filter bar -->
+    <div class="card" style="margin-bottom:1rem;padding:1rem">
+      <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+        <select id="filter-status" class="form-control" style="width:150px" onchange="loadBills()">
+          <option value="">All Status</option>
+          <option value="pending">Pending</option>
+          <option value="paid">Paid</option>
+          <option value="overdue">Overdue</option>
+        </select>
+        <input type="month" id="filter-month" class="form-control" style="width:160px" onchange="loadBills()">
+        <button class="btn btn-secondary btn-sm" onclick="clearFilters()">Clear</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Flat</th><th>Month</th><th>Amount</th><th>Due Date</th><th>Status</th><th>Paid On</th><th>Action</th></tr></thead>
+          <tbody id="bills-tbody"><tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text3)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Generate Bills Modal (Admin) -->
+<div class="modal-overlay" id="gen-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Generate Monthly Bills</span>
+      <button class="modal-close" onclick="closeModal('gen-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <p class="text-muted text-sm" style="margin-bottom:1rem">Creates bills for all occupied flats for the selected month.</p>
+    <div class="form-group"><label>Month*</label>
+      <input id="gen-month" type="month" class="form-control" required></div>
+    <div class="form-group"><label>Amount per Flat (₹)*</label>
+      <input id="gen-amount" type="number" class="form-control" placeholder="3500" required></div>
+    <div class="form-group"><label>Due Date*</label>
+      <input id="gen-due" type="date" class="form-control" required></div>
+    <button class="btn btn-primary w-full" onclick="generateBills()">Generate Bills</button>
+  </div>
+</div>
+
+<!-- Pay Modal -->
+<div class="modal-overlay" id="pay-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Record Payment</span>
+      <button class="modal-close" onclick="closeModal('pay-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <div id="pay-bill-info" style="margin-bottom:1rem;padding:1rem;background:var(--bg3);border-radius:var(--radius-sm)"></div>
+    <div class="form-group"><label>Transaction ID</label>
+      <input id="pay-txn" class="form-control" placeholder="UPI/NEFT/Cash reference"></div>
+    <button class="btn btn-primary w-full" onclick="submitPayment()">Confirm Payment</button>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+const user = requireAuth();
+let activeBillId = null;
+
+if (user) {
+  renderSidebar('maintenance');
+
+  // Admin-only buttons
+  if (user.role === 'admin') {
+    document.getElementById('admin-actions').innerHTML = `
+      <button class="btn btn-primary" onclick="openModal('gen-modal')"><i data-lucide="zap" style="width:14px;height:14px"></i> Generate Bills</button>`;
+    loadSummary();
+  }
+
+  loadBills();
+}
+
+async function loadSummary() {
+  const s = await api('GET','/api/maintenance/summary');
+  if (!s) return;
+  const pct = s.total_billed > 0 ? Math.round(s.total_collected/s.total_billed*100) : 0;
+  document.getElementById('summary-cards').innerHTML = `
+    <div class="card stat-card">
+      <div class="stat-icon"><i data-lucide="indian-rupee" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+      <div class="card-title">Total Billed</div>
+      <div class="card-value">${formatCurrency(s.total_billed)}</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-icon"><i data-lucide="check-circle" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+      <div class="card-title">Collected</div>
+      <div class="card-value" style="color:var(--success)">${formatCurrency(s.total_collected)}</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-icon"><i data-lucide="clock" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+      <div class="card-title">Pending</div>
+      <div class="card-value" style="color:var(--warning)">${formatCurrency(s.pending)}</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-icon"><i data-lucide="bar-chart-2" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+      <div class="card-title">Collection Rate</div>
+      <div class="card-value">${pct}%</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+    </div>`;
+}
+
+async function loadBills() {
+  const status = document.getElementById('filter-status').value;
+  const month = document.getElementById('filter-month').value;
+  let url = '/api/maintenance?';
+  if (status) url += `status=${status}&`;
+  if (month) url += `month=${month}`;
+  const bills = await api('GET', url);
+  if (!bills) return;
+
+  document.getElementById('bills-tbody').innerHTML = bills.map(b => `
+    <tr>
+      <td><strong>${b.flat_number||'Flat #'+b.flat_id}</strong></td>
+      <td>${b.month}</td>
+      <td>${formatCurrency(b.amount)}</td>
+      <td>${formatDate(b.due_date)}</td>
+      <td>${badge(b.status)}</td>
+      <td>${b.paid_date ? formatDate(b.paid_date) : '—'}</td>
+      <td>${b.status !== 'paid' ? `<button class="btn btn-secondary btn-sm" onclick="openPay(${b.id},'${b.flat_number||b.flat_id}','${b.month}',${b.amount})">Pay</button>` : '—'}</td>
+    </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:2rem">No bills found.</td></tr>';
+}
+
+function clearFilters() {
+  document.getElementById('filter-status').value = '';
+  document.getElementById('filter-month').value = '';
+  loadBills();
+}
+
+async function generateBills() {
+  const month = document.getElementById('gen-month').value;
+  const amount = document.getElementById('gen-amount').value;
+  const due = document.getElementById('gen-due').value;
+  if (!month || !amount || !due) { showError('Fill all fields'); return; }
+  try {
+    const r = await api('POST', `/api/maintenance/generate-all?month=${month}&amount=${amount}&due_date=${due}T00:00:00`);
+    showAlert(`✅ Created ${r.created} bills for ${r.month}`);
+    closeModal('gen-modal');
+    loadBills(); loadSummary();
+  } catch(err) { showError(err.message); }
+}
+
+function openPay(id, flat, month, amount) {
+  activeBillId = id;
+  document.getElementById('pay-bill-info').innerHTML = `
+    <strong>Flat ${flat}</strong> — ${month}<br>
+    Amount: <strong style="color:var(--primary-l)">${formatCurrency(amount)}</strong>`;
+  document.getElementById('pay-txn').value = '';
+  openModal('pay-modal');
+}
+
+async function submitPayment() {
+  const txn = document.getElementById('pay-txn').value || 'CASH-'+Date.now();
+  try {
+    await api('POST', `/api/maintenance/${activeBillId}/pay`, {transaction_id: txn});
+    showAlert('Payment recorded!');
+    closeModal('pay-modal');
+    loadBills(); if (user.role==='admin') loadSummary();
+  } catch(err) { showError(err.message); }
+}
+  if(typeof lucide!=="undefined")lucide.createIcons();
+</script>
+</body>
+</html>

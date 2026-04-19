@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dashboard — NestO</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main-content">
+    <div class="topbar">
+      <div><div class="page-title">Good <span id="greeting"></span> 👋</div>
+        <p class="text-muted text-sm mt-1" id="user-greeting"></p></div>
+      <div class="topbar-actions">
+        <span id="date-display" style="color:var(--text2);font-size:.85rem"></span>
+      </div>
+    </div>
+
+    <!-- Stat Grid -->
+    <div class="stat-grid" id="stat-grid">
+      <div class="card stat-card"><div class="spinner"></div></div>
+    </div>
+
+    <!-- Two column: Complaints + Visitors -->
+    <div class="grid-2" style="gap:1.5rem">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <h3 style="font-size:.95rem;font-weight:700">Recent Complaints</h3>
+          <a href="/complaints.html" class="btn btn-secondary btn-sm">View All</a>
+        </div>
+        <div id="recent-complaints"><div class="text-muted text-sm">Loading…</div></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <h3 style="font-size:.95rem;font-weight:700">Today's Visitors</h3>
+          <a href="/visitors.html" class="btn btn-secondary btn-sm">View All</a>
+        </div>
+        <div id="today-visitors"><div class="text-muted text-sm">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Notices -->
+    <div class="card" style="margin-top:1.5rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <h3 style="font-size:.95rem;font-weight:700">📋 Latest Notices</h3>
+        <a href="/notices.html" class="btn btn-secondary btn-sm">View All</a>
+      </div>
+      <div id="latest-notices"><div class="text-muted text-sm">Loading…</div></div>
+    </div>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+<script>
+const user = requireAuth();
+if (user) {
+  renderSidebar('dashboard');
+
+  // Greeting
+  const h = new Date().getHours();
+  document.getElementById('greeting').textContent =
+    h < 12 ? 'morning,' : h < 17 ? 'afternoon,' : 'evening,';
+  document.getElementById('user-greeting').textContent = `Welcome back, ${user.name}`;
+  document.getElementById('date-display').textContent =
+    new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+  // Load stats
+  api('GET','/api/stats').then(s => {
+    if (!s) return;
+    const statCards = [
+      {icon:'home',label:'Total Flats',value:s.total_flats,delta:`${s.occupied_flats} occupied`},
+      {icon:'users',label:'Residents',value:s.total_residents,delta:'Active residents'},
+      {icon:'alert-circle',label:'Open Complaints',value:s.open_complaints,delta:'Needs attention',col:s.open_complaints>0?'danger':'success'},
+      {icon:'user-check',label:"Today's Visitors",value:s.today_visitors,delta:'Logged today'},
+      {icon:'receipt',label:'Pending Bills',value:s.pending_bills,delta:'Awaiting payment'},
+      {icon:'indian-rupee',label:'Collected',value:'₹'+Number(s.maintenance_collected).toLocaleString('en-IN'),delta:'Total maintenance'},
+    ];
+    document.getElementById('stat-grid').innerHTML = statCards.map(c => `
+      <div class="card stat-card fade-in">
+        <div class="stat-icon"><i data-lucide="${c.icon}" style="width:20px;height:20px;stroke-width:1.5;color:var(--accent)"></i></div>
+        <div class="card-title">${c.label}</div>
+        <div class="card-value" style="${c.col==='danger'?'color:var(--danger)':''}">${c.value}</div>
+        <div class="card-delta">${c.delta}</div>
+      </div>`).join('');
+  });
+
+  // Recent complaints
+  api('GET','/api/complaints').then(list => {
+    if (!list) return;
+    const el = document.getElementById('recent-complaints');
+    if (!list.length) { el.innerHTML='<p class="text-muted text-sm">No complaints yet.</p>'; return; }
+    el.innerHTML = list.slice(0,5).map(c => `
+      <div style="padding:.6rem 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:.85rem;font-weight:600">${c.title}</span>
+          ${badge(c.status)}
+        </div>
+        <span style="font-size:.75rem;color:var(--text3)">${c.category} · ${formatDate(c.created_at)}</span>
+      </div>`).join('');
+  });
+
+  // Today's visitors
+  const today = new Date().toISOString().split('T')[0];
+  api('GET',`/api/visitors?date=${today}`).then(list => {
+    if (!list) return;
+    const el = document.getElementById('today-visitors');
+    if (!list.length) { el.innerHTML='<p class="text-muted text-sm">No visitors today.</p>'; return; }
+    el.innerHTML = list.slice(0,5).map(v => `
+      <div style="padding:.6rem 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:.85rem;font-weight:600">${v.name}</span>
+          <span class="badge badge-${v.entry_time?'green':'yellow'}">${v.entry_time?'Inside':'Expected'}</span>
+        </div>
+        <span style="font-size:.75rem;color:var(--text3)">${v.purpose||'—'} · Flat ${v.flat_number||'—'}</span>
+      </div>`).join('');
+  });
+
+  // Notices
+  api('GET','/api/notices').then(list => {
+    if (!list) return;
+    const el = document.getElementById('latest-notices');
+    if (!list.length) { el.innerHTML='<p class="text-muted text-sm">No notices.</p>'; return; }
+    el.innerHTML = list.slice(0,3).map(n => `
+      <div class="notice-card card ${n.is_poll?'poll':''}" style="margin-bottom:.75rem">
+        <div style="display:flex;justify-content:space-between;align-items:start">
+          <div>
+            <div style="font-weight:700;margin-bottom:.25rem">${n.is_poll?'📊 ':''} ${n.title}</div>
+            <div class="text-muted text-sm">${n.body.slice(0,120)}${n.body.length>120?'…':''}</div>
+          </div>
+          <span class="badge badge-${n.is_poll?'yellow':'blue'}" style="white-space:nowrap;margin-left:1rem">${n.category}</span>
+        </div>
+        <div style="font-size:.72rem;color:var(--text3);margin-top:.5rem">By ${n.posted_by} · ${formatDate(n.created_at)}</div>
+      </div>`).join('');
+  });
+}
+  if(typeof lucide!=="undefined")lucide.createIcons();
+</script>
+</body>
+</html>

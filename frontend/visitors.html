@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Visitors — NestO</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main-content">
+    <div class="topbar">
+      <div class="page-title">🚶 <span>Visitor Management</span></div>
+      <div class="topbar-actions">
+        <button class="btn btn-secondary" id="scan-btn" style="display:none" onclick="openModal('scan-modal')"><i data-lucide="scan-line" style="width:14px;height:14px"></i> Scan QR</button>
+        <button class="btn btn-primary" onclick="openModal('add-visitor-modal')"><i data-lucide="user-plus" style="width:14px;height:14px"></i> Pre-Approve</button>
+      </div>
+    </div>
+    <div id="alert-container"></div>
+
+    <!-- Stat cards -->
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.5rem">
+      <div class="card stat-card"><div class="stat-icon"><i data-lucide="user-check" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+        <div class="card-title">Today's Visitors</div><div class="card-value" id="v-today">—</div></div>
+      <div class="card stat-card"><div class="stat-icon"><i data-lucide="home" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+        <div class="card-title">Currently Inside</div><div class="card-value" id="v-inside">—</div></div>
+      <div class="card stat-card"><div class="stat-icon"><i data-lucide="shield-check" style="width:22px;height:22px;stroke-width:1.5;margin-bottom:.5rem;color:var(--accent)"></i></div>
+        <div class="card-title">Pre-Approved</div><div class="card-value" id="v-approved">—</div></div>
+    </div>
+
+    <!-- Date filter -->
+    <div class="card" style="padding:1rem;margin-bottom:1rem">
+      <div class="flex gap-2 items-center">
+        <input type="date" id="date-filter" class="form-control" style="width:180px" onchange="loadVisitors()">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('date-filter').value='';loadVisitors()">Today</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Visitor</th><th>Phone</th><th>Purpose</th><th>Flat</th><th>Vehicle</th><th>Entry</th><th>Exit</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody id="visitor-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Add Visitor Modal -->
+<div class="modal-overlay" id="add-visitor-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Pre-Approve Visitor</span>
+      <button class="modal-close" onclick="closeModal('add-visitor-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <form onsubmit="addVisitor(event)">
+      <div class="form-group"><label>Visitor Name*</label>
+        <input id="v-name" class="form-control" required></div>
+      <div class="grid-2">
+        <div class="form-group"><label>Phone</label>
+          <input id="v-phone" class="form-control" placeholder="9876543210"></div>
+        <div class="form-group"><label>Vehicle No.</label>
+          <input id="v-vehicle" class="form-control" placeholder="MH 01 AB 1234"></div>
+      </div>
+      <div class="form-group"><label>Purpose</label>
+        <input id="v-purpose" class="form-control" placeholder="Delivery, Guest, Repair…"></div>
+      <div class="form-group"><label>Flat*</label>
+        <select id="v-flat" class="form-control" required><option value="">Select Flat…</option></select>
+      </div>
+      <button type="submit" class="btn btn-primary w-full">Generate QR Pass</button>
+    </form>
+  </div>
+</div>
+
+<!-- QR Display Modal -->
+<div class="modal-overlay" id="qr-modal">
+  <div class="modal" style="text-align:center">
+    <div class="modal-header">
+      <span class="modal-title">Visitor QR Pass</span>
+      <button class="modal-close" onclick="closeModal('qr-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <div class="qr-box">
+      <p style="font-size:.85rem;color:var(--text2);margin-bottom:.5rem">Show this QR at the gate</p>
+      <div id="qr-display" style="font-size:3rem;margin:1rem 0">🔲</div>
+      <div id="qr-token-display" style="font-family:'JetBrains Mono',monospace;font-size:.8rem;
+           color:var(--primary-l);background:var(--bg3);padding:.5rem 1rem;border-radius:var(--radius-sm)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Scan QR Modal (Security) -->
+<div class="modal-overlay" id="scan-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Verify QR Token</span>
+      <button class="modal-close" onclick="closeModal('scan-modal')"><i data-lucide="x" style="width:15px;height:15px"></i></button>
+    </div>
+    <div class="form-group"><label>QR Token</label>
+      <input id="qr-token-input" class="form-control" placeholder="Paste or type QR token"></div>
+    <div class="flex gap-2">
+      <button class="btn btn-primary flex-1" onclick="doCheckin()">✅ Check In</button>
+      <button class="btn btn-danger flex-1" onclick="doCheckout()">🚪 Check Out</button>
+    </div>
+    <div id="scan-result" style="margin-top:1rem"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+const user = requireAuth();
+let flats = [];
+
+if (user) {
+  renderSidebar('visitors');
+  if (['admin','security'].includes(user.role)) {
+    document.getElementById('scan-btn').style.display = 'flex';
+  }
+  loadFlats(); loadVisitors();
+}
+
+async function loadFlats() {
+  if (user.role === 'resident') {
+    // Resident can only pre-approve for own flat
+    const me = await api('GET','/api/auth/me');
+    if (me?.flat) {
+      const opt = document.createElement('option');
+      opt.value = ''; // We'll pass flat_id from user's own flat later
+      document.getElementById('v-flat').innerHTML = `<option value="${me.flat.flat_number}">My Flat: ${me.flat.flat_number}</option>`;
+    }
+  } else {
+    flats = await api('GET','/api/residents') || [];
+    const sel = document.getElementById('v-flat');
+    sel.innerHTML = '<option value="">Select Flat…</option>';
+    flats.forEach(f => {
+      const o = document.createElement('option');
+      o.value = f.id; o.textContent = `${f.flat_number}${f.resident?' — '+f.resident.name:''}`;
+      sel.appendChild(o);
+    });
+  }
+}
+
+async function loadVisitors() {
+  const date = document.getElementById('date-filter').value;
+  let url = '/api/visitors';
+  if (date) url += `?date=${date}`;
+  const visitors = await api('GET', url) || [];
+
+  const today = new Date().toISOString().split('T')[0];
+  const todayV = visitors.filter(v => v.created_at.startsWith(today));
+  document.getElementById('v-today').textContent = todayV.length;
+  document.getElementById('v-inside').textContent = visitors.filter(v => v.entry_time && !v.exit_time).length;
+  document.getElementById('v-approved').textContent = visitors.filter(v => v.pre_approved).length;
+
+  document.getElementById('visitor-tbody').innerHTML = visitors.map(v => `
+    <tr>
+      <td><strong>${v.name}</strong></td>
+      <td>${v.phone||'—'}</td>
+      <td>${v.purpose||'—'}</td>
+      <td>${v.flat_number||'—'}</td>
+      <td>${v.vehicle_no||'—'}</td>
+      <td>${v.entry_time?formatDate(v.entry_time):'—'}</td>
+      <td>${v.exit_time?formatDate(v.exit_time):'—'}</td>
+      <td>${v.exit_time?'<span class="badge badge-gray">Exited</span>':
+           v.entry_time?'<span class="badge badge-green">Inside</span>':
+           v.pre_approved?'<span class="badge badge-blue">Pre-Approved</span>':
+           '<span class="badge badge-yellow">Expected</span>'}</td>
+      <td><button class="btn btn-secondary btn-sm" onclick="showQR('${v.qr_token}')">QR</button></td>
+    </tr>`).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:2rem">No visitors.</td></tr>';
+}
+
+async function addVisitor(e) {
+  e.preventDefault();
+  const flatId = parseInt(document.getElementById('v-flat').value);
+  if (!flatId) { showError('Select a flat'); return; }
+  try {
+    const res = await api('POST','/api/visitors',{
+      name: document.getElementById('v-name').value,
+      phone: document.getElementById('v-phone').value || null,
+      purpose: document.getElementById('v-purpose').value || null,
+      vehicle_no: document.getElementById('v-vehicle').value || null,
+      flat_id: flatId,
+      pre_approved: true,
+    });
+    closeModal('add-visitor-modal');
+    showQR(res.qr_token);
+    loadVisitors();
+  } catch(err) { showError(err.message); }
+}
+
+function showQR(token) {
+  document.getElementById('qr-token-display').textContent = token;
+  // QR code visual (simplified — real apps use qrcode.js)
+  document.getElementById('qr-display').innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${token}" alt="QR Code" style="border-radius:8px">`;
+  openModal('qr-modal');
+}
+
+async function doCheckin() {
+  const token = document.getElementById('qr-token-input').value.trim();
+  if (!token) return;
+  try {
+    const r = await api('POST', `/api/visitors/checkin/${token}`);
+    document.getElementById('scan-result').innerHTML = `<div class="alert alert-success">${r.message} — Flat ${r.flat}</div>`;
+    loadVisitors();
+  } catch(err) {
+    document.getElementById('scan-result').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+  }
+}
+
+async function doCheckout() {
+  const token = document.getElementById('qr-token-input').value.trim();
+  if (!token) return;
+  try {
+    const r = await api('POST', `/api/visitors/checkout/${token}`);
+    document.getElementById('scan-result').innerHTML = `<div class="alert alert-success">${r.message}</div>`;
+    loadVisitors();
+  } catch(err) {
+    document.getElementById('scan-result').innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+  }
+}
+  if(typeof lucide!=="undefined")lucide.createIcons();
+</script>
+</body>
+</html>
